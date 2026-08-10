@@ -11,10 +11,11 @@ import (
 
 // Strategy 删除策略
 type Strategy struct {
-	Mode       string   `json:"mode"`        // "time" | "folder"
-	KeepN      int      `json:"keep_n"`      // time 模式保留份数，默认 1
+	Mode        string   `json:"mode"`         // "time" | "folder"
+	KeepN       int      `json:"keep_n"`       // time 模式保留份数，默认 1
+	KeepEarliest bool    `json:"keep_earliest"` // time 模式为 true 时保留最早（最旧）的份数，否则保留最新
 	KeepFolders []string `json:"keep_folders"` // folder 模式保留的文件夹
-	Hashes     []string `json:"hashes"`      // 指定重复组 hash，为空表示全部
+	Hashes      []string `json:"hashes"`       // 指定重复组 hash，为空表示全部
 }
 
 // Service 删除服务
@@ -79,6 +80,11 @@ func (s *Service) relPath(path string) string {
 	return filepath.Base(p)
 }
 
+// TrashPath 返回某批次内对应原文件在回收站中的实际路径
+func (s *Service) TrashPath(batch, origPath string) string {
+	return filepath.Join(s.trash, batch, s.relPath(origPath))
+}
+
 // Restore 恢复指定文件：从回收站移回原路径
 func (s *Service) Restore(batch string, paths []string) (int, error) {
 	n := 0
@@ -132,9 +138,17 @@ func (s *Service) decide(str Strategy) ([]store.FileRecord, error) {
 			if keepN < 1 {
 				keepN = 1
 			}
-			// g.Files 已按 mod_time 降序，保留前 keepN 份
-			for i := keepN; i < len(g.Files); i++ {
-				out = append(out, g.Files[i])
+			// g.Files 已按 mod_time 降序（最新在前）
+			if str.KeepEarliest {
+				// 保留最早（最旧）keepN 份，删除较新的
+				for i := 0; i < len(g.Files)-keepN; i++ {
+					out = append(out, g.Files[i])
+				}
+			} else {
+				// 保留最新 keepN 份，删除其余的
+				for i := keepN; i < len(g.Files); i++ {
+					out = append(out, g.Files[i])
+				}
 			}
 		default:
 			// 默认按时间保留最新 1 份

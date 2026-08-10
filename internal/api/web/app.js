@@ -128,10 +128,12 @@ async function loadDups() {
     totalSeize += g.reclaimable; totalFiles += g.file_count - 1;
     return `<div class="group">
       <div class="group-head"><span>哈希 <b>${g.hash.slice(0,12)}…</b> · ${g.file_count} 个文件 · 单个 ${fmt(g.size)} · 可释放 <b>${fmt(g.reclaimable)}</b></span></div>
-      <div class="group-files">${g.files.map(f => `<div class="file-row"><span class="path">${f.path}</span><span class="time">${fmtTime(f.mod_time)}</span></div>`).join('')}</div>
+      <div class="group-files">${g.files.map(f => `<div class="file-row"><span class="path">${f.path}</span>${previewBtn(f.path)}<span class="time">${fmtTime(f.mod_time)}</span></div>`).join('')}</div>
     </div>`;
   }).join('');
   $('#dupSummary').textContent = groups.length ? `共 ${groups.length} 组，可释放 ${fmt(totalSeize)}，去重 ${totalFiles} 个文件` : '（无重复）';
+  document.querySelectorAll('#dupList .preview-file').forEach(b =>
+    b.onclick = () => openPreview(decodeURIComponent(b.dataset.path)));
 }
 
 // strategy
@@ -159,9 +161,64 @@ function strategy() {
   return {
     mode,
     keep_n: mode === 'time' ? parseInt($('#keepN').value) || 1 : 0,
+    keep_earliest: mode === 'time' ? $('#keepWhich').value === 'earliest' : false,
     keep_folders: keepFolders
   };
 }
+// 预览：浏览器可打开的文件类型
+const IMG_EXT = {'.png':1,'.jpg':1,'.jpeg':1,'.gif':1,'.webp':1,'.svg':1,'.bmp':1,'.ico':1};
+const PDF_EXT = {'.pdf':1};
+const VIDEO_EXT = {'.mp4':1,'.webm':1,'.ogv':1};
+const AUDIO_EXT = {'.mp3':1,'.wav':1,'.ogg':1,'.flac':1};
+const TEXT_EXT = {'.txt':1,'.log':1,'.ini':1,'.conf':1,'.cfg':1,'.sh':1,'.bat':1,'.py':1,'.go':1,'.java':1,'.c':1,'.cpp':1,'.h':1,'.js':1,'.ts':1,'.tsx':1,'.jsx':1,'.css':1,'.md':1,'.json':1,'.xml':1,'.yaml':1,'.yml':1,'.csv':1,'.html':1,'.htm':1,'.sql':1};
+
+function previewMeta(path) {
+  const dot = path.lastIndexOf('.');
+  const ext = dot >= 0 ? path.slice(dot).toLowerCase() : '';
+  if (IMG_EXT[ext]) return {ok:true, kind:'img'};
+  if (PDF_EXT[ext]) return {ok:true, kind:'pdf'};
+  if (VIDEO_EXT[ext]) return {ok:true, kind:'video'};
+  if (AUDIO_EXT[ext]) return {ok:true, kind:'audio'};
+  if (TEXT_EXT[ext]) return {ok:true, kind:'text'};
+  return {ok:false, kind:null};
+}
+function previewBtn(path) {
+  return previewMeta(path).ok
+    ? `<button class="ghost preview-file" data-path="${encodeURIComponent(path)}">预览</button>` : '';
+}
+function previewUrl(path, batch) {
+  return '/api/preview?path=' + encodeURIComponent(path) + (batch ? '&batch=' + encodeURIComponent(batch) : '');
+}
+
+async function openPreview(path, batch) {
+  const meta = previewMeta(path);
+  if (!meta.ok) { alert('该文件类型不支持预览'); return; }
+  $('#previewTitle').textContent = path;
+  const url = previewUrl(path, batch);
+  const body = $('#previewBody');
+  if (meta.kind === 'img') {
+    body.innerHTML = `<img class="pv-img" src="${url}" alt="">`;
+  } else if (meta.kind === 'pdf') {
+    body.innerHTML = `<iframe class="pv-full" src="${url}"></iframe>`;
+  } else if (meta.kind === 'video') {
+    body.innerHTML = `<video class="pv-full" controls src="${url}"></video>`;
+  } else if (meta.kind === 'audio') {
+    body.innerHTML = `<audio class="pv-audio" controls src="${url}"></audio>`;
+  } else {
+    body.innerHTML = '<pre class="pv-text">加载中…</pre>';
+    try {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error();
+      const text = await r.text();
+      body.innerHTML = `<pre class="pv-text">${text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>`;
+    } catch {
+      body.innerHTML = '<pre class="pv-text">加载失败</pre>';
+    }
+  }
+  $('#previewModal').classList.remove('hidden');
+}
+$('#previewClose').onclick = () => { $('#previewModal').classList.add('hidden'); $('#previewBody').innerHTML = ''; };
+
 $('#previewBtn').onclick = async () => {
   const files = await api('/api/delete/preview', 'POST', strategy());
   $('#previewResult').textContent = files.length
@@ -219,6 +276,7 @@ async function openBatch(batch) {
         const f = currentBatchFiles[i];
         return `<div class="file-row">
           <span class="path">${f.path}</span>
+          ${previewBtn(f.path)}
           <span class="time">${fmt(f.size)}</span>
           <button class="ghost restore-file" data-idx="${i}">恢复</button>
         </div>`;
@@ -234,6 +292,8 @@ function renderTrashActions() {
     b.onclick = () => restoreFiles([+b.dataset.idx]));
   document.querySelectorAll('#trashBatchList .restore-folder').forEach(b =>
     b.onclick = () => restoreFiles(b.dataset.idx.split(',').map(Number)));
+  document.querySelectorAll('#trashBatchList .preview-file').forEach(b =>
+    b.onclick = () => openPreview(decodeURIComponent(b.dataset.path), currentBatch));
 }
 
 async function restoreFiles(idxs) {
@@ -260,3 +320,4 @@ $('#emptyTrashBtn').onclick = async () => {
 };
 
 loadFolders(); initBrowser(); loadDups(); loadTrash();
+api('/api/version').then(v => { if (v && v.version) $('#appVersion').textContent = v.version; }).catch(() => {});

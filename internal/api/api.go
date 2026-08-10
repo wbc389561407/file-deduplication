@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -31,19 +32,26 @@ type Server struct {
 	del     *del.Service
 	dataDir string
 	myfile  string // 扫描根目录（挂载点），前端只能在此目录内选择
+	version string
 
 	mu     sync.Mutex
 	task   *store.Task
 	cancel context.CancelFunc
 }
 
-func New(st *store.Store, dataDir string, myfileRoot string, trashDir string) *Server {
+func New(st *store.Store, dataDir string, myfileRoot string, trashDir string, version string) *Server {
+	// 扫描根目录统一转为绝对路径，保证与入库的绝对文件路径一致（inMyfile / relPath 校验才有效）
+	myfileAbs, err := filepath.Abs(myfileRoot)
+	if err != nil {
+		myfileAbs = filepath.Clean(myfileRoot)
+	}
 	return &Server{
 		store:   st,
 		scanner: scanner.New(st),
-		del:     del.New(st, trashDir, filepath.Clean(myfileRoot)),
+		del:     del.New(st, trashDir, myfileAbs),
 		dataDir: dataDir,
-		myfile:  filepath.Clean(myfileRoot),
+		myfile:  myfileAbs,
+		version: version,
 	}
 }
 
@@ -61,10 +69,12 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /api/folders", s.listFolders)
+	mux.HandleFunc("GET /api/version", s.versionInfo)
 	mux.HandleFunc("POST /api/folders", s.addFolder)
 	mux.HandleFunc("DELETE /api/folders/{id}", s.deleteFolder)
 	mux.HandleFunc("GET /api/myfile/root", s.myfileRoot)
 	mux.HandleFunc("GET /api/myfile/list", s.myfileList)
+	mux.HandleFunc("GET /api/preview", s.previewFile)
 	mux.HandleFunc("POST /api/scan", s.startScan)
 	mux.HandleFunc("POST /api/scan/cancel", s.cancelScan)
 	mux.HandleFunc("GET /api/task", s.getTask)
@@ -90,6 +100,11 @@ func logMW(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 		fmt.Printf("[%s] %s %s %s\n", time.Now().Format("15:04:05"), r.Method, r.URL.Path, time.Since(start))
 	})
+}
+
+// versionInfo 返回当前版本号
+func (s *Server) versionInfo(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, map[string]string{"version": s.version})
 }
 
 // ---------- folders ----------
@@ -179,6 +194,88 @@ func (s *Server) myfileList(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, 200, map[string]any{"path": filepath.Clean(path), "root": s.myfile, "dirs": dirs})
+}
+
+// previewType 根据扩展名返回可预览的 MIME 类型；不可预览时 ok 为 false
+func previewType(path string) (mimeType string, ok bool) {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	// 图片
+	case ".png":
+		return "image/png", true
+	case ".jpg", ".jpeg":
+		return "image/jpeg", true
+	case ".gif":
+		return "image/gif", true
+	case ".webp":
+		return "image/webp", true
+	case ".svg":
+		return "image/svg+xml", true
+	case ".bmp":
+		return "image/bmp", true
+	case ".ico":
+		return "image/x-icon", true
+	// 文本
+	case ".txt", ".log", ".ini", ".conf", ".cfg", ".sh", ".bat", ".py", ".go", ".java", ".c", ".cpp", ".h", ".js", ".ts", ".tsx", ".jsx", ".css", ".md", ".json", ".xml", ".yaml", ".yml", ".csv", ".html", ".htm", ".sql":
+		return "text/plain; charset=utf-8", true
+	// PDF
+	case ".pdf":
+		return "application/pdf", true
+	// 音频
+	case ".mp3":
+		return "audio/mpeg", true
+	case ".wav":
+		return "audio/wav", true
+	case ".ogg":
+		return "audio/ogg", true
+	case ".flac":
+		return "audio/flac", true
+	// 视频
+	case ".mp4":
+		return "video/mp4", true
+	case ".webm":
+		return "video/webm", true
+	case ".ogv":
+		return "video/ogg", true
+	}
+	return "", false
+}
+
+// previewFile 内联返回文件内容，供浏览器预览（仅 /myfile 下、可预览类型）
+// 传入 batch 时，从回收站对应路径返回（用于预览已删除的文件）
+func (s *Server) previewFile(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Query().Get("path")
+	batch := r.URL.Query().Get("batch")
+	if path == "" {
+		writeErr(w, 400, "缺少 path 参数")
+		return
+	}
+	if !s.inMyfile(path) {
+		writeErr(w, 400, "只能预览 "+s.myfile+" 目录下的文件")
+		return
+	}
+	mimeType, ok := previewType(path)
+	if !ok {
+		writeErr(w, 400, "该文件类型不支持预览")
+		return
+	}
+	serve := path
+	if batch != "" {
+		serve = s.del.TrashPath(batch, path)
+	}
+	info, err := os.Stat(serve)
+	if err != nil {
+		writeErr(w, 404, "文件不存在")
+		return
+	}
+	if info.IsDir() {
+		writeErr(w, 400, "不能预览目录")
+		return
+	}
+	w.Header().Set("Content-Type", mimeType)
+	w.Header().Set("Content-Disposition", "inline; filename*=UTF-8''"+url.QueryEscape(filepath.Base(path)))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	http.ServeFile(w, r, serve)
 }
 
 // ---------- scan ----------

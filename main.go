@@ -10,6 +10,9 @@ import (
 	"filededup/internal/store"
 )
 
+// version 当前版本号
+const version = "v1.0.2"
+
 func main() {
 	dataDir := getenv("DATA_DIR", "./data")
 	addr := getenv("LISTEN_ADDR", ":8080")
@@ -24,7 +27,8 @@ func main() {
 	}
 	defer st.Close()
 
-	srv := api.New(st, dataDir, myfileRoot, trashDir)
+	srv := api.New(st, dataDir, myfileRoot, trashDir, version)
+	log.Printf("版本: %s", version)
 	log.Printf("数据目录: %s", mustAbs(dataDir))
 	log.Printf("回收站: %s", mustAbs(trashDir))
 	log.Printf("扫描根目录: %s", myfileRoot)

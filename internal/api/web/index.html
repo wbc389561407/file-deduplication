@@ -8,7 +8,7 @@
 </head>
 <body>
 <header>
-  <h1>文件去重控制台</h1>
+  <h1>文件去重控制台 <span id="appVersion" class="ver"></span></h1>
   <div class="task-bar">
     <button id="scanBtn" class="primary">开始扫描</button>
     <button id="cancelBtn" disabled>取消</button>
@@ -39,11 +39,17 @@
   <section class="panel" id="deletePanel">
     <h2>删除策略</h2>
     <div class="row">
-      <label><input type="radio" name="mode" value="time" checked> 按时间保留最新</label>
+      <label><input type="radio" name="mode" value="time" checked> 按时间保留</label>
       <label><input type="radio" name="mode" value="folder"> 按文件夹保留</label>
     </div>
     <div class="row" id="timeOpts">
       <label>保留份数 <input id="keepN" type="number" value="1" min="1"></label>
+      <label>保留
+        <select id="keepWhich">
+          <option value="latest">最新</option>
+          <option value="earliest">最早</option>
+        </select>
+      </label>
     </div>
     <div class="row" id="folderOpts">
       <button id="pickKeepBtn">选择保留文件夹</button>
@@ -78,6 +84,15 @@
       <button id="pickerCancel" class="ghost">取消</button>
       <button id="pickerAdd" class="primary">选择此目录</button>
     </div>
+  </div>
+</div>
+<div id="previewModal" class="modal hidden">
+  <div class="modal-box wide">
+    <div class="row preview-head">
+      <h3>预览 <span id="previewTitle" class="muted"></span></h3>
+      <button id="previewClose" class="ghost">关闭</button>
+    </div>
+    <div id="previewBody" class="preview-body"></div>
   </div>
 </div>
 <div id="trashModal" class="modal hidden">
