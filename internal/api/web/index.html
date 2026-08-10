@@ -32,7 +32,7 @@
   </section>
 
   <section class="panel">
-    <h2>重复文件 <span id="dupSummary" class="muted"></span></h2>
+    <h2><input type="checkbox" id="dupSelectAll" title="全选/取消全选"> 重复文件 <span id="dupSummary" class="muted"></span> <span id="dupSelected" class="sel-badge"></span></h2>
     <div id="dupList" class="groups"></div>
   </section>
 
@@ -58,6 +58,7 @@
     <div class="row">
       <button id="previewBtn">预览将删除</button>
       <button id="deleteBtn" class="danger">确认删除</button>
+      <span id="deletePanelHint" class="sel-badge"></span>
     </div>
     <pre id="previewResult" class="preview"></pre>
   </section>

@@ -121,20 +121,51 @@ $('#scanBtn').onclick = startScan;
 $('#cancelBtn').onclick = async () => { await api('/api/scan/cancel', 'POST'); };
 
 // dups
+let selectedDups = new Set(); // 勾选去重的重复组 hash
+function syncDupSelect() {
+  $('#dupSelected').textContent = selectedDups.size ? `已选 ${selectedDups.size} 组` : '';
+  $('#dupSelectAll').checked = selectedDups.size > 0 &&
+    document.querySelectorAll('#dupList .group').length > 0 &&
+    selectedDups.size === document.querySelectorAll('#dupList .group').length;
+  // 勾选了组时，删除只作用于勾选的组；未勾选则作用于全部组
+  $('#deletePanelHint').textContent = selectedDups.size
+    ? `将对勾选的 ${selectedDups.size} 组执行去重`
+    : '';
+}
 async function loadDups() {
   const groups = (await api('/api/dups')) || [];
   let totalSeize = 0, totalFiles = 0;
   $('#dupList').innerHTML = groups.map(g => {
     totalSeize += g.reclaimable; totalFiles += g.file_count - 1;
-    return `<div class="group">
-      <div class="group-head"><span>哈希 <b>${g.hash.slice(0,12)}…</b> · ${g.file_count} 个文件 · 单个 ${fmt(g.size)} · 可释放 <b>${fmt(g.reclaimable)}</b></span></div>
+    const sel = selectedDups.has(g.hash);
+    return `<div class="group${sel ? ' selected' : ''}" data-hash="${g.hash}">
+      <div class="group-head">
+        <label class="group-check"><input type="checkbox" class="dup-check" data-hash="${g.hash}" ${sel?'checked':''}> 选择此组</label>
+        <span>哈希 <b>${g.hash.slice(0,12)}…</b> · ${g.file_count} 个文件 · 单个 ${fmt(g.size)} · 可释放 <b>${fmt(g.reclaimable)}</b></span>
+      </div>
       <div class="group-files">${g.files.map(f => `<div class="file-row"><span class="path">${f.path}</span>${previewBtn(f.path)}<span class="time">${fmtTime(f.mod_time)}</span></div>`).join('')}</div>
     </div>`;
   }).join('');
   $('#dupSummary').textContent = groups.length ? `共 ${groups.length} 组，可释放 ${fmt(totalSeize)}，去重 ${totalFiles} 个文件` : '（无重复）';
   document.querySelectorAll('#dupList .preview-file').forEach(b =>
     b.onclick = () => openPreview(decodeURIComponent(b.dataset.path)));
+  document.querySelectorAll('#dupList .dup-check').forEach(cb =>
+    cb.onchange = () => {
+      cb.checked ? selectedDups.add(cb.dataset.hash) : selectedDups.delete(cb.dataset.hash);
+      cb.closest('.group').classList.toggle('selected', cb.checked);
+      syncDupSelect();
+    });
+  syncDupSelect();
 }
+$('#dupSelectAll').onchange = e => {
+  const all = document.querySelectorAll('#dupList .dup-check');
+  if (e.target.checked) {
+    all.forEach(cb => { cb.checked = true; selectedDups.add(cb.dataset.hash); cb.closest('.group').classList.add('selected'); });
+  } else {
+    all.forEach(cb => { cb.checked = false; selectedDups.delete(cb.dataset.hash); cb.closest('.group').classList.remove('selected'); });
+  }
+  syncDupSelect();
+};
 
 // strategy
 document.querySelectorAll('input[name=mode]').forEach(r =>
@@ -162,7 +193,8 @@ function strategy() {
     mode,
     keep_n: mode === 'time' ? parseInt($('#keepN').value) || 1 : 0,
     keep_earliest: mode === 'time' ? $('#keepWhich').value === 'earliest' : false,
-    keep_folders: keepFolders
+    keep_folders: keepFolders,
+    hashes: selectedDups.size ? Array.from(selectedDups) : []
   };
 }
 // 预览：浏览器可打开的文件类型

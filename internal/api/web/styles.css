@@ -49,8 +49,12 @@ button.ghost { background: #f1f2f6; }
 
 .groups { display: flex; flex-direction: column; gap: 12px; }
 .group { border: 1px solid #e2e6ee; border-radius: 8px; overflow: hidden; }
-.group-head { background: #f7f9fc; padding: 10px 14px; display: flex; justify-content: space-between; font-size: 13px; color: #57606f; }
+.group.selected { border-color: #2f54eb; box-shadow: 0 0 0 1px #2f54eb; }
+.group-head { background: #f7f9fc; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 13px; color: #57606f; }
 .group-head b { color: #2f3542; }
+.group-check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; color: #57606f; white-space: nowrap; font-size: 12px; }
+.group-check input { cursor: pointer; }
+.sel-badge { display: inline-block; color: #2f54eb; font-size: 12px; font-weight: 600; }
 .group-files { padding: 6px 14px; }
 .file-row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; font-size: 13px; border-bottom: 1px dashed #f1f2f6; }
 .file-row .path { word-break: break-all; flex: 1; }
