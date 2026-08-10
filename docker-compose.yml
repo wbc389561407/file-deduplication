@@ -1,0 +1,18 @@
+services:
+  filededup:
+    build: .
+    container_name: filededup
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      DATA_DIR: /data
+      LISTEN_ADDR: :8080
+      MYFILE_ROOT: /myfile
+    volumes:
+      # 宿主机文件夹挂载到 /myfile 下的子目录（需读写权限，删除时把重复文件移入回收站）
+      - /path/to/files:/myfile/files
+      - filededup-data:/data
+    # 需要时把宿主机真实目录挂载到 /myfile 子目录，再在 Web 控制台选择该目录
+volumes:
+  filededup-data:

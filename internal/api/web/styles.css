@@ -1,0 +1,47 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; background: #f5f6fa; color: #2f3542; }
+header { background: #2f3542; color: #fff; padding: 16px 24px; display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+header h1 { font-size: 20px; font-weight: 600; }
+main { max-width: 1100px; margin: 24px auto; padding: 0 16px; display: flex; flex-direction: column; gap: 20px; }
+.panel { background: #fff; border-radius: 10px; padding: 20px 24px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.panel h2 { font-size: 16px; margin-bottom: 14px; color: #2f3542; }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+input[type=text], input[type=number] { padding: 8px 12px; border: 1px solid #d1d8e0; border-radius: 6px; font-size: 14px; flex: 1; min-width: 200px; }
+button { padding: 8px 18px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; background: #dfe4ea; color: #2f3542; transition: .15s; }
+button:hover { filter: brightness(.95); }
+button.primary { background: #0a84ff; color: #fff; }
+button.danger { background: #ff4757; color: #fff; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+.muted { color: #747d8c; font-weight: 400; font-size: 13px; }
+.hidden { display: none !important; }
+
+.task-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; flex: 1; }
+.status { font-size: 13px; color: #a4b0be; }
+.progress { flex: 1; min-width: 160px; height: 8px; background: #57606f; border-radius: 4px; overflow: hidden; }
+#progressBar { height: 100%; width: 0; background: #2ed573; transition: width .3s; }
+
+#folderList { list-style: none; margin-top: 10px; }
+#folderList li { display: flex; justify-content: space-between; align-items: center; padding: 8px 4px; border-bottom: 1px solid #f1f2f6; font-size: 14px; }
+#folderList li .del { background: none; color: #ff4757; padding: 2px 6px; }
+
+/* 目录选择器 */
+.browser { border: 1px solid #e2e6ee; border-radius: 8px; padding: 12px; }
+.browser-head { justify-content: space-between; }
+.current-path { font-size: 13px; color: #57606f; font-family: monospace; word-break: break-all; flex: 1; }
+button.ghost { background: #f1f2f6; }
+.dir-list { list-style: none; max-height: 260px; overflow: auto; margin-top: 8px; }
+.dir-list li { padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+.dir-list li:hover { background: #f0f7ff; }
+.dir-list li.empty { cursor: default; color: #747d8c; }
+.dir-icon { font-size: 15px; }
+
+.groups { display: flex; flex-direction: column; gap: 12px; }
+.group { border: 1px solid #e2e6ee; border-radius: 8px; overflow: hidden; }
+.group-head { background: #f7f9fc; padding: 10px 14px; display: flex; justify-content: space-between; font-size: 13px; color: #57606f; }
+.group-head b { color: #2f3542; }
+.group-files { padding: 6px 14px; }
+.file-row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; font-size: 13px; border-bottom: 1px dashed #f1f2f6; }
+.file-row .path { word-break: break-all; flex: 1; }
+.file-row .time { color: #747d8c; white-space: nowrap; }
+
+.preview { background: #f7f9fc; border-radius: 6px; padding: 12px; font-size: 12px; max-height: 300px; overflow: auto; white-space: pre-wrap; word-break: break-all; }

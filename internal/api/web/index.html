@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>文件去重控制台</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header>
+  <h1>文件去重控制台</h1>
+  <div class="task-bar">
+    <button id="scanBtn" class="primary">开始扫描</button>
+    <button id="cancelBtn" disabled>取消</button>
+    <span id="taskStatus" class="status"></span>
+    <div class="progress"><div id="progressBar"></div></div>
+  </div>
+</header>
+
+<main>
+  <section class="panel" id="foldersPanel">
+    <h2>待扫描文件夹</h2>
+    <div class="browser">
+      <div class="row browser-head">
+        <button id="upBtn" class="ghost">⬆ 上级目录</button>
+        <span id="currentPath" class="current-path"></span>
+        <button id="addFolderBtn" class="primary">添加此目录</button>
+      </div>
+      <ul id="dirList" class="dir-list"></ul>
+    </div>
+    <ul id="folderList"></ul>
+  </section>
+
+  <section class="panel">
+    <h2>重复文件 <span id="dupSummary" class="muted"></span></h2>
+    <div id="dupList" class="groups"></div>
+  </section>
+
+  <section class="panel" id="deletePanel">
+    <h2>删除策略</h2>
+    <div class="row">
+      <label><input type="radio" name="mode" value="time" checked> 按时间保留最新</label>
+      <label><input type="radio" name="mode" value="folder"> 按文件夹保留</label>
+    </div>
+    <div class="row" id="timeOpts">
+      <label>保留份数 <input id="keepN" type="number" value="1" min="1"></label>
+    </div>
+    <div class="row hidden" id="folderOpts">
+      <label>保留文件夹 <input id="keepFolder" type="text" placeholder="绝对路径，多个用逗号分隔"></label>
+    </div>
+    <div class="row">
+      <button id="previewBtn">预览将删除</button>
+      <button id="deleteBtn" class="danger">确认删除</button>
+    </div>
+    <pre id="previewResult" class="preview"></pre>
+  </section>
+
+  <section class="panel">
+    <h2>回收站 <span id="trashInfo" class="muted"></span></h2>
+    <button id="emptyTrashBtn" class="danger">清空回收站</button>
+  </section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
