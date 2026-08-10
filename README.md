@@ -26,7 +26,7 @@ docker run -d --name filededup \
   -v /宿主机/文件夹:/myfile/你的目录名 \
   -v filededup-data:/data \
   -v /宿主机/回收站目录:/trash \
-  389561407/filededup:v1.0.2
+  389561407/filededup:latest
 ```
 
 ### 3. 访问
