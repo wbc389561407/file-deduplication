@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -48,7 +49,9 @@ func (s *Store) migrate() error {
 			hash TEXT DEFAULT '',
 			mod_time INTEGER NOT NULL,
 			folder_id INTEGER NOT NULL,
-			deleted INTEGER DEFAULT 0
+			deleted INTEGER DEFAULT 0,
+			deleted_at INTEGER DEFAULT 0,
+			batch_id TEXT DEFAULT ''
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_files_hash ON files(hash)`,
 		`CREATE INDEX IF NOT EXISTS idx_files_size ON files(size)`,
@@ -67,7 +70,48 @@ func (s *Store) migrate() error {
 			return fmt.Errorf("migrate: %w", err)
 		}
 	}
+	// 为旧库补充新列（幂等），须在创建 batch 索引之前完成
+	cols, err := s.tableCols("files")
+	if err != nil {
+		return err
+	}
+	for _, col := range []string{"deleted_at INTEGER DEFAULT 0", "batch_id TEXT DEFAULT ''"} {
+		name := strings.Fields(col)[0]
+		if _, ok := cols[name]; !ok {
+			if _, err := s.db.Exec("ALTER TABLE files ADD COLUMN " + col); err != nil {
+				return fmt.Errorf("migrate add col %s: %w", name, err)
+			}
+		}
+	}
+	// 补充列后再建依赖 batch_id 的索引
+	for _, st := range []string{
+		`CREATE INDEX IF NOT EXISTS idx_files_batch ON files(batch_id)`,
+	} {
+		if _, err := s.db.Exec(st); err != nil {
+			return fmt.Errorf("migrate index: %w", err)
+		}
+	}
 	return nil
+}
+
+func (s *Store) tableCols(table string) (map[string]bool, error) {
+	rows, err := s.db.Query("PRAGMA table_info(" + table + ")")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull, pk int
+		var dflt any
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk); err != nil {
+			return nil, err
+		}
+		out[name] = true
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) Close() error { return s.db.Close() }
@@ -94,7 +138,7 @@ func (s *Store) ListFolders() ([]Folder, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []Folder
+	out := make([]Folder, 0)
 	for rows.Next() {
 		var f Folder
 		if err := rows.Scan(&f.ID, &f.Path, &f.CreatedAt); err != nil {
@@ -136,9 +180,60 @@ func (s *Store) ClearDeleted() error {
 	return err
 }
 
-// MarkDeleted 将文件标记为已删除
-func (s *Store) MarkDeleted(path string) error {
-	_, err := s.db.Exec(`UPDATE files SET deleted = 1 WHERE path = ?`, path)
+// MarkDeleted 将文件标记为已删除并记录删除时间与批次
+func (s *Store) MarkDeleted(path, batch string, ts int64) error {
+	_, err := s.db.Exec(`UPDATE files SET deleted = 1, deleted_at = ?, batch_id = ? WHERE path = ?`, ts, batch, path)
+	return err
+}
+
+// TrashBatches 按批次汇总已删除文件
+func (s *Store) TrashBatches() ([]TrashBatch, error) {
+	rows, err := s.db.Query(`SELECT batch_id, MAX(deleted_at) AS dt, COUNT(*) AS c, SUM(size) AS total
+		FROM files WHERE deleted = 1 GROUP BY batch_id ORDER BY dt DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]TrashBatch, 0)
+	for rows.Next() {
+		var b TrashBatch
+		if err := rows.Scan(&b.BatchID, &b.DeletedAt, &b.FileCount, &b.TotalSize); err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
+// TrashFiles 返回某批次（可选某文件夹前缀下）的已删除文件记录
+func (s *Store) TrashFiles(batch, folder string) ([]FileRecord, error) {
+	q := `SELECT id, path, size, hash, mod_time, folder_id, deleted, deleted_at, batch_id
+		FROM files WHERE deleted = 1 AND batch_id = ?`
+	args := []any{batch}
+	if folder != "" {
+		q += ` AND (path = ? OR path LIKE ?)`
+		args = append(args, folder, folder+"/%")
+	}
+	q += ` ORDER BY path`
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]FileRecord, 0)
+	for rows.Next() {
+		var f FileRecord
+		if err := rows.Scan(&f.ID, &f.Path, &f.Size, &f.Hash, &f.ModTime, &f.FolderID, &f.Deleted, &f.DeletedAt, &f.BatchID); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+// RestoreFile 恢复文件：清除删除标记
+func (s *Store) RestoreFile(path string) error {
+	_, err := s.db.Exec(`UPDATE files SET deleted = 0, deleted_at = 0, batch_id = '' WHERE path = ?`, path)
 	return err
 }
 
@@ -151,7 +246,7 @@ func (s *Store) ListDupGroups() ([]DupGroup, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var groups []DupGroup
+	groups := make([]DupGroup, 0)
 	for rows.Next() {
 		var g DupGroup
 		if err := rows.Scan(&g.Hash, &g.Size, &g.FileCount); err != nil {
@@ -175,16 +270,16 @@ func (s *Store) ListDupGroups() ([]DupGroup, error) {
 }
 
 func (s *Store) FilesByHash(hash string) ([]FileRecord, error) {
-	rows, err := s.db.Query(`SELECT id, path, size, hash, mod_time, folder_id, deleted
+	rows, err := s.db.Query(`SELECT id, path, size, hash, mod_time, folder_id, deleted, deleted_at, batch_id
 		FROM files WHERE hash = ? AND deleted = 0 ORDER BY mod_time DESC`, hash)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []FileRecord
+	out := make([]FileRecord, 0)
 	for rows.Next() {
 		var f FileRecord
-		if err := rows.Scan(&f.ID, &f.Path, &f.Size, &f.Hash, &f.ModTime, &f.FolderID, &f.Deleted); err != nil {
+		if err := rows.Scan(&f.ID, &f.Path, &f.Size, &f.Hash, &f.ModTime, &f.FolderID, &f.Deleted, &f.DeletedAt, &f.BatchID); err != nil {
 			return nil, err
 		}
 		out = append(out, f)

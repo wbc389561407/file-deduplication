@@ -9,13 +9,23 @@ type Folder struct {
 
 // FileRecord 文件记录
 type FileRecord struct {
-	ID       int64  `json:"id"`
-	Path     string `json:"path"`
-	Size     int64  `json:"size"`
-	Hash     string `json:"hash"`
-	ModTime  int64  `json:"mod_time"`
-	FolderID int64  `json:"folder_id"`
-	Deleted  int    `json:"deleted"`
+	ID        int64  `json:"id"`
+	Path      string `json:"path"`
+	Size      int64  `json:"size"`
+	Hash      string `json:"hash"`
+	ModTime   int64  `json:"mod_time"`
+	FolderID  int64  `json:"folder_id"`
+	Deleted   int    `json:"deleted"`
+	DeletedAt int64  `json:"deleted_at"`
+	BatchID   string `json:"batch_id"`
+}
+
+// TrashBatch 回收站批次（一次删除操作）
+type TrashBatch struct {
+	BatchID   string `json:"batch_id"`
+	DeletedAt int64  `json:"deleted_at"`
+	FileCount int    `json:"file_count"`
+	TotalSize int64  `json:"total_size"`
 }
 
 // DupGroup 重复组（由 files 表按 hash 聚合计算）

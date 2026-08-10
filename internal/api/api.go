@@ -37,11 +37,11 @@ type Server struct {
 	cancel context.CancelFunc
 }
 
-func New(st *store.Store, dataDir string, myfileRoot string) *Server {
+func New(st *store.Store, dataDir string, myfileRoot string, trashDir string) *Server {
 	return &Server{
 		store:   st,
 		scanner: scanner.New(st),
-		del:     del.New(st, dataDir),
+		del:     del.New(st, trashDir, filepath.Clean(myfileRoot)),
 		dataDir: dataDir,
 		myfile:  filepath.Clean(myfileRoot),
 	}
@@ -72,6 +72,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/delete/preview", s.deletePreview)
 	mux.HandleFunc("POST /api/delete", s.deleteExecute)
 	mux.HandleFunc("GET /api/trash", s.trashInfo)
+	mux.HandleFunc("GET /api/trash/batches", s.trashBatches)
+	mux.HandleFunc("GET /api/trash/batches/{batch}", s.trashBatchFiles)
+	mux.HandleFunc("POST /api/trash/restore", s.trashRestore)
 	mux.HandleFunc("POST /api/trash/empty", s.emptyTrash)
 
 	// 静态前端
@@ -265,10 +268,29 @@ func (s *Server) listDups(w http.ResponseWriter, r *http.Request) {
 
 // ---------- delete ----------
 
+// validateStrategy 校验删除策略：保留文件夹必须位于 /myfile 下
+func (s *Server) validateStrategy(str *del.Strategy) error {
+	if str.Mode == "folder" {
+		if len(str.KeepFolders) == 0 {
+			return fmt.Errorf("请选择至少一个保留文件夹")
+		}
+		for _, p := range str.KeepFolders {
+			if !s.inMyfile(p) {
+				return fmt.Errorf("保留文件夹 %s 不在 %s 目录下", p, s.myfile)
+			}
+		}
+	}
+	return nil
+}
+
 func (s *Server) deletePreview(w http.ResponseWriter, r *http.Request) {
 	var str del.Strategy
 	if err := json.NewDecoder(r.Body).Decode(&str); err != nil {
 		writeErr(w, 400, "参数错误")
+		return
+	}
+	if err := s.validateStrategy(&str); err != nil {
+		writeErr(w, 400, err.Error())
 		return
 	}
 	files, err := s.del.Preview(str)
@@ -283,6 +305,10 @@ func (s *Server) deleteExecute(w http.ResponseWriter, r *http.Request) {
 	var str del.Strategy
 	if err := json.NewDecoder(r.Body).Decode(&str); err != nil {
 		writeErr(w, 400, "参数错误")
+		return
+	}
+	if err := s.validateStrategy(&str); err != nil {
+		writeErr(w, 400, err.Error())
 		return
 	}
 	files, err := s.del.Execute(str)
@@ -302,6 +328,60 @@ func (s *Server) trashInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"count": n, "dir": s.del.TrashDir()})
+}
+
+// trashBatches 返回回收站批次列表（含删除时间）
+func (s *Server) trashBatches(w http.ResponseWriter, r *http.Request) {
+	batches, err := s.store.TrashBatches()
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, batches)
+}
+
+// trashBatchFiles 返回某批次（可按文件夹过滤）内的已删除文件
+func (s *Server) trashBatchFiles(w http.ResponseWriter, r *http.Request) {
+	batch := r.PathValue("batch")
+	folder := r.URL.Query().Get("folder")
+	if folder != "" && !s.inMyfile(folder) {
+		writeErr(w, 400, "只能浏览 "+s.myfile+" 目录下的内容")
+		return
+	}
+	files, err := s.store.TrashFiles(batch, folder)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, files)
+}
+
+// trashRestore 恢复指定文件（或指定文件夹下所有文件），paths 为原始路径
+func (s *Server) trashRestore(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Batch string   `json:"batch"`
+		Paths []string `json:"paths"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, 400, "参数错误")
+		return
+	}
+	if strings.TrimSpace(body.Batch) == "" || len(body.Paths) == 0 {
+		writeErr(w, 400, "缺少批次或文件路径")
+		return
+	}
+	for _, p := range body.Paths {
+		if !s.inMyfile(p) {
+			writeErr(w, 400, "文件路径 "+p+" 不在 "+s.myfile+" 目录下")
+			return
+		}
+	}
+	n, err := s.del.Restore(body.Batch, body.Paths)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"count": n})
 }
 
 func (s *Server) emptyTrash(w http.ResponseWriter, r *http.Request) {

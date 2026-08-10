@@ -18,7 +18,7 @@ let myfileRoot = '/myfile';
 let currentDir = '/myfile';
 
 async function loadFolders() {
-  const folders = await api('/api/folders');
+  const folders = (await api('/api/folders')) || [];
   $('#folderList').innerHTML = folders.map(f =>
     `<li><span>${f.path}</span><button class="del" data-id="${f.id}">删除</button></li>`).join('');
   document.querySelectorAll('#folderList .del').forEach(b =>
@@ -63,6 +63,40 @@ $('#addFolderBtn').onclick = async () => {
   loadFolders();
 };
 
+// 通用目录选择弹窗（用于“保留文件夹”等场景）
+let pickerCb = null;
+let pickerRoot = '/myfile';
+let pickerDir = '/myfile';
+
+function openDirPicker(cb) {
+  pickerCb = cb;
+  $('#dirPicker').classList.remove('hidden');
+  const root = api('/api/myfile/root').then(r => {
+    pickerRoot = r.root; pickerDir = r.root;
+    loadPicker(r.root);
+  });
+}
+async function loadPicker(path) {
+  const res = await api('/api/myfile/list?path=' + encodeURIComponent(path));
+  pickerDir = res.path; pickerRoot = res.root;
+  $('#pickerPath').textContent = res.path === res.root ? res.root + ' （根）' : res.path;
+  $('#pickerUp').disabled = (res.path === res.root);
+  const dirs = res.dirs || [];
+  $('#pickerList').innerHTML = dirs.length
+    ? dirs.map(d => `<li data-path="${d.path}"><span class="dir-icon">📁</span>${d.name}</li>`).join('')
+    : '<li class="empty">（该目录下没有子文件夹）</li>';
+  document.querySelectorAll('#pickerList li[data-path]').forEach(li =>
+    li.onclick = () => loadPicker(li.dataset.path));
+}
+$('#pickerUp').onclick = () => {
+  if (pickerDir === pickerRoot) return;
+  const idx = pickerDir.lastIndexOf('/');
+  pickerDir = idx > pickerRoot.length ? pickerDir.slice(0, idx) : pickerRoot;
+  loadPicker(pickerDir);
+};
+$('#pickerAdd').onclick = () => { $('#dirPicker').classList.add('hidden'); if (pickerCb) pickerCb(pickerDir); };
+$('#pickerCancel').onclick = () => { $('#dirPicker').classList.add('hidden'); };
+
 // scan
 let pollTimer = null;
 async function startScan() {
@@ -88,7 +122,7 @@ $('#cancelBtn').onclick = async () => { await api('/api/scan/cancel', 'POST'); }
 
 // dups
 async function loadDups() {
-  const groups = await api('/api/dups');
+  const groups = (await api('/api/dups')) || [];
   let totalSeize = 0, totalFiles = 0;
   $('#dupList').innerHTML = groups.map(g => {
     totalSeize += g.reclaimable; totalFiles += g.file_count - 1;
@@ -107,12 +141,25 @@ document.querySelectorAll('input[name=mode]').forEach(r =>
     $('#folderOpts').classList.toggle('hidden', r.value !== 'folder');
   });
 
+// 保留文件夹（用目录选择器选择，多选）
+let keepFolders = [];
+function renderKeepFolders() {
+  $('#keepFolderList').innerHTML = keepFolders.map((p, i) =>
+    `<li><span>${p}</span><button class="del" data-i="${i}">×</button></li>`).join('');
+  document.querySelectorAll('#keepFolderList .del').forEach(b =>
+    b.onclick = () => { keepFolders.splice(+b.dataset.i, 1); renderKeepFolders(); });
+}
+$('#pickKeepBtn').onclick = () => openDirPicker(path => {
+  if (!keepFolders.includes(path)) keepFolders.push(path);
+  renderKeepFolders();
+});
+
 function strategy() {
   const mode = document.querySelector('input[name=mode]:checked').value;
   return {
     mode,
     keep_n: mode === 'time' ? parseInt($('#keepN').value) || 1 : 0,
-    keep_folders: mode === 'folder' ? $('#keepFolder').value.split(/[,，]/).map(s=>s.trim()).filter(Boolean) : []
+    keep_folders: keepFolders
   };
 }
 $('#previewBtn').onclick = async () => {
@@ -129,10 +176,83 @@ $('#deleteBtn').onclick = async () => {
 };
 
 // trash
+let currentBatch = '';
+let currentBatchFiles = [];
+
 async function loadTrash() {
   const t = await api('/api/trash');
   $('#trashInfo').textContent = `${t.count} 个文件 · ${t.dir}`;
+  const batches = (await api('/api/trash/batches')) || [];
+  $('#trashBatches').innerHTML = batches.length
+    ? batches.map(b => `
+      <div class="batch" data-batch="${b.batch_id}">
+        <div class="batch-head">
+          <strong>批次 ${b.batch_id}</strong>
+          <span class="batch-time">删除时间：${fmtTime(b.deleted_at)}</span>
+        </div>
+        <div class="batch-sub">${b.file_count} 个文件 · ${fmt(b.total_size)}</div>
+        <span class="batch-enter">进入查看 ›</span>
+      </div>`).join('')
+    : '<div class="empty">回收站为空</div>';
+  document.querySelectorAll('#trashBatches .batch').forEach(b =>
+    b.onclick = () => openBatch(b.dataset.batch));
 }
+
+async function openBatch(batch) {
+  currentBatch = batch;
+  currentBatchFiles = (await api('/api/trash/batches/' + encodeURIComponent(batch))) || [];
+  const dt = currentBatchFiles.length ? currentBatchFiles[0].deleted_at : null;
+  $('#trashBatchTitle').textContent = batch + (dt ? ' · 删除时间 ' + fmtTime(dt) : '');
+  // 按文件夹分组
+  const map = {};
+  currentBatchFiles.forEach((f, i) => {
+    const dir = f.path.includes('/') ? f.path.slice(0, f.path.lastIndexOf('/')) : '/';
+    (map[dir] = map[dir] || []).push(i);
+  });
+  $('#trashBatchList').innerHTML = Object.entries(map).map(([dir, idxs]) => `
+    <div class="folder-group">
+      <div class="folder-head">
+        <span class="path">${dir}</span>
+        <button class="primary restore-folder" data-idx="${idxs.join(',')}">恢复此文件夹</button>
+      </div>
+      ${idxs.map(i => {
+        const f = currentBatchFiles[i];
+        return `<div class="file-row">
+          <span class="path">${f.path}</span>
+          <span class="time">${fmt(f.size)}</span>
+          <button class="ghost restore-file" data-idx="${i}">恢复</button>
+        </div>`;
+      }).join('')}
+    </div>`).join('');
+  $('#trashSelectInfo').textContent = `共 ${currentBatchFiles.length} 个文件`;
+  $('#trashModal').classList.remove('hidden');
+  renderTrashActions();
+}
+
+function renderTrashActions() {
+  document.querySelectorAll('#trashBatchList .restore-file').forEach(b =>
+    b.onclick = () => restoreFiles([+b.dataset.idx]));
+  document.querySelectorAll('#trashBatchList .restore-folder').forEach(b =>
+    b.onclick = () => restoreFiles(b.dataset.idx.split(',').map(Number)));
+}
+
+async function restoreFiles(idxs) {
+  if (!idxs.length) return;
+  const paths = idxs.map(i => currentBatchFiles[i].path);
+  if (!confirm(`确定恢复 ${paths.length} 个文件到原位置？`)) return;
+  const res = await api('/api/trash/restore', 'POST', { batch: currentBatch, paths });
+  alert(`已恢复 ${res.count} 个文件`);
+  currentBatchFiles = currentBatchFiles.filter((_, i) => !idxs.includes(i));
+  if (currentBatchFiles.length === 0) {
+    $('#trashModal').classList.add('hidden');
+  } else {
+    openBatch(currentBatch);
+  }
+  loadTrash(); loadDups();
+}
+$('#trashRestoreAll').onclick = () =>
+  restoreFiles(currentBatchFiles.map((_, i) => i));
+$('#trashModalClose').onclick = () => $('#trashModal').classList.add('hidden');
 $('#emptyTrashBtn').onclick = async () => {
   if (!confirm('确认清空回收站？此操作不可恢复！')) return;
   await api('/api/trash/empty', 'POST');

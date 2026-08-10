@@ -15,6 +15,8 @@ func main() {
 	addr := getenv("LISTEN_ADDR", ":8080")
 	// 扫描根目录（挂载点），前端只能在此目录下选择文件夹
 	myfileRoot := getenv("MYFILE_ROOT", "/myfile")
+	// 回收站目录（可映射到宿主机目录，便于恢复）
+	trashDir := getenv("TRASH_DIR", filepath.Join(dataDir, "trash"))
 
 	st, err := store.Open(dataDir)
 	if err != nil {
@@ -22,8 +24,9 @@ func main() {
 	}
 	defer st.Close()
 
-	srv := api.New(st, dataDir, myfileRoot)
+	srv := api.New(st, dataDir, myfileRoot, trashDir)
 	log.Printf("数据目录: %s", mustAbs(dataDir))
+	log.Printf("回收站: %s", mustAbs(trashDir))
 	log.Printf("扫描根目录: %s", myfileRoot)
 	log.Printf("监听: %s", addr)
 	if err := http.ListenAndServe(addr, srv.Handler()); err != nil {

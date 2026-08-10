@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"filededup/internal/store"
 )
@@ -20,10 +21,11 @@ type Strategy struct {
 type Service struct {
 	store *store.Store
 	trash string
+	myfile string // 扫描根目录，用于计算回收站内的相对路径
 }
 
-func New(st *store.Store, dataDir string) *Service {
-	return &Service{store: st, trash: filepath.Join(dataDir, "trash")}
+func New(st *store.Store, trashDir string, myfile string) *Service {
+	return &Service{store: st, trash: trashDir, myfile: filepath.Clean(myfile)}
 }
 
 // Preview 预览将要删除的文件，不真正执行
@@ -31,18 +33,24 @@ func (s *Service) Preview(str Strategy) ([]store.FileRecord, error) {
 	return s.decide(str)
 }
 
-// Execute 执行删除：将文件移入回收站
+// Execute 执行删除：生成批次号，将文件移入回收站（保留相对路径），记录删除时间与批次
 func (s *Service) Execute(str Strategy) ([]store.FileRecord, error) {
 	toDelete, err := s.decide(str)
 	if err != nil {
 		return nil, err
 	}
+	if len(toDelete) == 0 {
+		return nil, nil
+	}
+	now := time.Now()
+	batch := now.Format("20060102_150405") // 批次号（删除时间）
 	if err := os.MkdirAll(s.trash, 0o755); err != nil {
 		return nil, err
 	}
 	var deleted []store.FileRecord
 	for _, f := range toDelete {
-		dest := filepath.Join(s.trash, f.Hash, filepath.Base(f.Path))
+		rel := s.relPath(f.Path)
+		dest := filepath.Join(s.trash, batch, rel)
 		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 			continue
 		}
@@ -52,12 +60,45 @@ func (s *Service) Execute(str Strategy) ([]store.FileRecord, error) {
 				continue
 			}
 		}
-		if err := s.store.MarkDeleted(f.Path); err != nil {
+		if err := s.store.MarkDeleted(f.Path, batch, now.Unix()); err != nil {
 			continue
 		}
+		f.BatchID = batch
+		f.DeletedAt = now.Unix()
 		deleted = append(deleted, f)
 	}
 	return deleted, nil
+}
+
+// relPath 计算文件在回收站内的相对路径（相对 /myfile）
+func (s *Service) relPath(path string) string {
+	p := filepath.Clean(path)
+	if rel, ok := strings.CutPrefix(p, s.myfile+string(filepath.Separator)); ok {
+		return rel
+	}
+	return filepath.Base(p)
+}
+
+// Restore 恢复指定文件：从回收站移回原路径
+func (s *Service) Restore(batch string, paths []string) (int, error) {
+	n := 0
+	for _, p := range paths {
+		rel := s.relPath(p)
+		src := filepath.Join(s.trash, batch, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			continue
+		}
+		if err := os.Rename(src, p); err != nil {
+			if err2 := copyAndRemove(src, p); err2 != nil {
+				continue
+			}
+		}
+		if err := s.store.RestoreFile(p); err != nil {
+			continue
+		}
+		n++
+	}
+	return n, nil
 }
 
 // decide 依据策略计算要删除的文件

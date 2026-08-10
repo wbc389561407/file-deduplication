@@ -9,10 +9,14 @@ services:
       DATA_DIR: /data
       LISTEN_ADDR: :8080
       MYFILE_ROOT: /myfile
+      TRASH_DIR: /trash
     volumes:
-      # 宿主机文件夹挂载到 /myfile 下的子目录（需读写权限，删除时把重复文件移入回收站）
+      # 宿主机文件夹挂载到 /myfile 子目录（需读写权限，删除时把重复文件移入回收站）
       - /path/to/files:/myfile/files
       - filededup-data:/data
+      # 回收站映射到宿主机目录，删除的文件在宿主机可见，便于恢复
+      # 例如 - /宿主机/回收站路径:/trash
+      - /path/to/trash:/trash
     # 需要时把宿主机真实目录挂载到 /myfile 子目录，再在 Web 控制台选择该目录
 volumes:
   filededup-data:

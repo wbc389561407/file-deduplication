@@ -45,8 +45,9 @@
     <div class="row" id="timeOpts">
       <label>保留份数 <input id="keepN" type="number" value="1" min="1"></label>
     </div>
-    <div class="row hidden" id="folderOpts">
-      <label>保留文件夹 <input id="keepFolder" type="text" placeholder="绝对路径，多个用逗号分隔"></label>
+    <div class="row" id="folderOpts">
+      <button id="pickKeepBtn">选择保留文件夹</button>
+      <ul id="keepFolderList" class="keep-list"></ul>
     </div>
     <div class="row">
       <button id="previewBtn">预览将删除</button>
@@ -57,9 +58,41 @@
 
   <section class="panel">
     <h2>回收站 <span id="trashInfo" class="muted"></span></h2>
-    <button id="emptyTrashBtn" class="danger">清空回收站</button>
+    <div class="row">
+      <button id="emptyTrashBtn" class="danger">清空回收站</button>
+    </div>
+    <div id="trashBatches" class="batches"></div>
   </section>
 </main>
+
+<!-- 通用目录选择弹窗 -->
+<div id="dirPicker" class="modal hidden">
+  <div class="modal-box">
+    <h3>选择目录</h3>
+    <div class="row">
+      <button id="pickerUp" class="ghost">⬆ 上级目录</button>
+      <span id="pickerPath" class="current-path"></span>
+    </div>
+    <ul id="pickerList" class="dir-list"></ul>
+    <div class="row modal-actions">
+      <button id="pickerCancel" class="ghost">取消</button>
+      <button id="pickerAdd" class="primary">选择此目录</button>
+    </div>
+  </div>
+</div>
+<div id="trashModal" class="modal hidden">
+  <div class="modal-box wide">
+    <h3>回收站批次 <span id="trashBatchTitle" class="muted"></span></h3>
+    <div class="row">
+      <button id="trashRestoreAll" class="primary">恢复全部</button>
+      <span id="trashSelectInfo" class="muted"></span>
+    </div>
+    <div id="trashBatchList" class="trash-batch-list"></div>
+    <div class="row modal-actions">
+      <button id="trashModalClose" class="ghost">关闭</button>
+    </div>
+  </div>
+</div>
 <script src="app.js"></script>
 </body>
 </html>
