@@ -11,7 +11,7 @@
 ### 1. 拉取镜像
 
 ```bash
-docker pull 389561407/filededup:v1.0.2
+docker pull 389561407/filededup:latest
 ```
 
 > 国内环境拉取失败时，请先配置 Docker 国内镜像源，再重新拉取。
