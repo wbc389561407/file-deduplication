@@ -32,6 +32,8 @@ type Server struct {
 	del     *del.Service
 	dataDir string
 	myfile  string // 扫描根目录（挂载点），前端只能在此目录内选择
+	webPath string // 安全入口（路径前缀），错误入口返回 "are you ok?"
+	webPass string // 访问密码，与入口配合用于访问控制
 	version string
 
 	mu     sync.Mutex
@@ -39,7 +41,7 @@ type Server struct {
 	cancel context.CancelFunc
 }
 
-func New(st *store.Store, dataDir string, myfileRoot string, trashDir string, version string) *Server {
+func New(st *store.Store, dataDir string, myfileRoot string, trashDir string, webPath string, webPass string, version string) *Server {
 	// 扫描根目录统一转为绝对路径，保证与入库的绝对文件路径一致（inMyfile / relPath 校验才有效）
 	myfileAbs, err := filepath.Abs(myfileRoot)
 	if err != nil {
@@ -51,6 +53,8 @@ func New(st *store.Store, dataDir string, myfileRoot string, trashDir string, ve
 		del:     del.New(st, trashDir, myfileAbs),
 		dataDir: dataDir,
 		myfile:  myfileAbs,
+		webPath: strings.Trim(webPath, "/"),
+		webPass: webPass,
 		version: version,
 	}
 }
@@ -91,7 +95,86 @@ func (s *Server) Handler() http.Handler {
 	static, _ := fs.Sub(webFS, "web")
 	mux.Handle("GET /", http.FileServer(http.FS(static)))
 
-	return logMW(mux)
+	// 安全入口 + 访问密码（先校验入口，再校验密码，最后剥离入口前缀交给内部路由）
+	var h http.Handler = http.StripPrefix("/"+s.webPath, mux)
+	h = s.authMW(h)
+	h = s.gateMW(h)
+	return logMW(h)
+}
+
+// gateMW 安全入口门控：只有访问 /{webPath}/ 前缀的请求才放行，其余返回 "are you ok?"
+func (s *Server) gateMW(next http.Handler) http.Handler {
+	prefix := "/" + s.webPath
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := r.URL.Path
+		if p == prefix || strings.HasPrefix(p, prefix+"/") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		// 安全入口错误：返回字符串
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = w.Write([]byte("are you ok?"))
+	})
+}
+
+// authMW 访问密码校验：通过 Cookie 校验；未登录时返回内置登录页（API 返回 401）
+func (s *Server) authMW(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 已登录：Cookie 校验
+		if c, err := r.Cookie("filededup_key"); err == nil && c.Value == s.webPass {
+			next.ServeHTTP(w, r)
+			return
+		}
+		// 登录提交：query 携带 pass，校验通过后写入 Cookie 并回到入口
+		if pass := r.URL.Query().Get("pass"); pass != "" && pass == s.webPass {
+			http.SetCookie(w, &http.Cookie{
+				Name:     "filededup_key",
+				Value:    s.webPass,
+				Path:     "/",
+				MaxAge:   0,
+				HttpOnly: false,
+				SameSite: http.SameSiteLaxMode,
+			})
+			http.Redirect(w, r, "/"+s.webPath+"/", http.StatusFound)
+			return
+		}
+		// API 未授权
+		if strings.HasPrefix(r.URL.Path, "/"+s.webPath+"/api/") {
+			writeErr(w, 401, "未授权，请先访问入口登录")
+			return
+		}
+		// 页面未授权：返回登录页
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(401)
+		_, _ = w.Write([]byte(s.loginPage()))
+	})
+}
+
+// loginPage 内置登录页
+func (s *Server) loginPage() string {
+	return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>请输入访问密码</title>
+<style>
+  body{font-family:-apple-system,system-ui,Segoe UI,Roboto,sans-serif;background:#f0f2f5;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
+  .box{background:#fff;border-radius:10px;padding:32px 36px;box-shadow:0 8px 30px rgba(0,0,0,.12);width:min(340px,90vw)}
+  h1{font-size:18px;margin:0 0 18px;color:#2f3542;text-align:center}
+  input{width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #d5dbe3;border-radius:6px;font-size:14px;margin-bottom:14px}
+  button{width:100%;padding:10px;background:#2f54eb;color:#fff;border:none;border-radius:6px;font-size:14px;cursor:pointer}
+  button:hover{background:#1f43d0}
+</style>
+</head>
+<body>
+  <form class="box" method="get">
+    <h1>进入文件去重控制台</h1>
+    <input type="password" name="pass" placeholder="请输入访问密码" autofocus required>
+    <button type="submit">登录</button>
+  </form>
+</body>
+</html>`
 }
 
 func logMW(next http.Handler) http.Handler {

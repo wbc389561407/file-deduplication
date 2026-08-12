@@ -1,4 +1,10 @@
 const $ = s => document.querySelector(s);
+// 安全入口前缀（从当前 URL 解析，如 /admin），所有 API/预览请求都带上
+const BASE = (() => {
+  const p = location.pathname.replace(/\/+$/, '');
+  const i = p.lastIndexOf('/');
+  return i <= 0 ? '' : p.slice(0, i + 1);
+})();
 const fmt = n => n >= 1073741824 ? (n/1073741824).toFixed(2)+' GB'
   : n >= 1048576 ? (n/1048576).toFixed(2)+' MB'
   : n >= 1024 ? (n/1024).toFixed(1)+' KB' : n+' B';
@@ -7,7 +13,7 @@ const fmtTime = t => t ? new Date(t*1000).toLocaleString() : '';
 async function api(url, method='GET', body) {
   const opt = { method, headers: {} };
   if (body) { opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
-  const r = await fetch(url, opt);
+  const r = await fetch(BASE + url, opt);
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(data.error || r.statusText);
   return data;
@@ -219,7 +225,7 @@ function previewBtn(path) {
     ? `<button class="ghost preview-file" data-path="${encodeURIComponent(path)}">预览</button>` : '';
 }
 function previewUrl(path, batch) {
-  return '/api/preview?path=' + encodeURIComponent(path) + (batch ? '&batch=' + encodeURIComponent(batch) : '');
+  return BASE + '/api/preview?path=' + encodeURIComponent(path) + (batch ? '&batch=' + encodeURIComponent(batch) : '');
 }
 
 async function openPreview(path, batch) {

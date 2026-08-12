@@ -23,15 +23,34 @@ docker run -d --name filededup \
   -p 8080:8080 \
   -e MYFILE_ROOT=/myfile \
   -e TRASH_DIR=/trash \
+  -e WEB_PATH=admin \
+  -e WEB_PASS=你的访问密码 \
   -v /宿主机/文件夹:/myfile/你的目录名 \
   -v filededup-data:/data \
   -v /宿主机/回收站目录:/trash \
-  389561407/filededup:latest
+  389561407/filededup:v1.1.0
 ```
 
 ### 3. 访问
 
-浏览器打开 `http://localhost:8080`。
+浏览器打开 `http://localhost:8080/<安全入口>/`。
+
+例如安全入口设为 `admin`，则访问 `http://localhost:8080/admin/`，首次需输入访问密码进入控制台。
+
+---
+
+## 🔐 安全入口与访问密码（必填）
+
+Web 控制台通过**安全入口**和**访问密码**两层保护，两者**必须配置**，否则容器无法启动：
+
+| 环境变量 | 说明 |
+|---|---|
+| `WEB_PATH` | 安全入口（路径前缀），如 `admin`。必须访问 `/<WEB_PATH>/` 才能进入 Web/API |
+| `WEB_PASS` | 访问密码，登录时输入后才能进入控制台 |
+
+- **安全入口错误时返回字符串** `are you ok?`：访问 `/<WEB_PATH>/` 之外的路径（如 `/`、`/api/...`）都会得到 `are you ok?`。
+- **访问密码**：首次打开正确入口时显示登录页，输入 `WEB_PASS` 后进入；未登录时 API 返回 401。
+- 建议把安全入口设为不易猜测的随机字符串，如 `9f3k2x7q`。
 
 ---
 
@@ -119,6 +138,8 @@ file-deduplication/
 | `LISTEN_ADDR` | `:8080` | HTTP 监听地址 |
 | `MYFILE_ROOT` | `/myfile` | 扫描根目录（挂载点），前端只能在此目录内选择文件夹 |
 | `TRASH_DIR` | `${DATA_DIR}/trash` | 回收站目录，可映射到宿主机目录便于恢复 |
+| `WEB_PATH` | 无（必填） | 安全入口路径前缀，错误入口返回 `are you ok?` |
+| `WEB_PASS` | 无（必填） | 访问密码，未配置则无法启动 |
 
 ## 回收站使用说明
 

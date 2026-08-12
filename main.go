@@ -5,13 +5,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"filededup/internal/api"
 	"filededup/internal/store"
 )
 
 // version 当前版本号
-const version = "v1.0.2"
+const version = "v1.1.0"
 
 func main() {
 	dataDir := getenv("DATA_DIR", "./data")
@@ -20,6 +21,12 @@ func main() {
 	myfileRoot := getenv("MYFILE_ROOT", "/myfile")
 	// 回收站目录（可映射到宿主机目录，便于恢复）
 	trashDir := getenv("TRASH_DIR", filepath.Join(dataDir, "trash"))
+	// 安全入口（路径前缀）与访问密码：必须配置
+	webPath := strings.Trim(getenv("WEB_PATH", ""), "/")
+	webPass := getenv("WEB_PASS", "")
+	if webPath == "" || strings.TrimSpace(webPass) == "" {
+		log.Fatal("必须配置 WEB_PATH（安全入口）与 WEB_PASS（访问密码）两个环境变量才能启动")
+	}
 
 	st, err := store.Open(dataDir)
 	if err != nil {
@@ -27,11 +34,12 @@ func main() {
 	}
 	defer st.Close()
 
-	srv := api.New(st, dataDir, myfileRoot, trashDir, version)
+	srv := api.New(st, dataDir, myfileRoot, trashDir, webPath, webPass, version)
 	log.Printf("版本: %s", version)
 	log.Printf("数据目录: %s", mustAbs(dataDir))
 	log.Printf("回收站: %s", mustAbs(trashDir))
 	log.Printf("扫描根目录: %s", myfileRoot)
+	log.Printf("安全入口: /%s (访问地址 http://<host>:<port>/%s/)", webPath, webPath)
 	log.Printf("监听: %s", addr)
 	if err := http.ListenAndServe(addr, srv.Handler()); err != nil {
 		log.Fatal(err)
